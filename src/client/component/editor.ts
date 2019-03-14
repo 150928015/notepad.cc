@@ -1,6 +1,6 @@
 import m, { Component, FactoryComponent } from 'mithril'
 import hashString from 'string-hash'
-import { applyPatch, createPatch, merge3, PatchCompressed } from '../util/diff3'
+import { applyPatch, createPatch, merge3, PatchCompressed } from '../lib/diff3'
 import { Stream } from '../util/stream'
 import { assist } from './assist'
 import { START, END } from './assistor.types'

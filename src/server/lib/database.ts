@@ -1,5 +1,5 @@
-import Datastore from 'nedb'
-import path from 'path'
+import * as Datastore from 'nedb'
+import * as path from 'path'
 import { promisifyAll } from './promisify'
 
 export interface Id {

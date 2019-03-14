@@ -1,5 +1,5 @@
-import randomstring from 'randomstring'
-import hashString from 'string-hash'
+import * as randomstring from 'randomstring'
+import hashString = require('string-hash')
 import { Database } from '../lib/database'
 import { Patch, applyPatch } from '../lib/diff3'
 

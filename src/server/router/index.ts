@@ -1,6 +1,6 @@
-import Router from 'koa-router'
-import send from 'koa-send'
-import path from 'path'
+import * as Router from 'koa-router'
+import * as send from 'koa-send'
+import * as path from 'path'
 import { noteService } from '../service/note'
 
 const router = new Router()

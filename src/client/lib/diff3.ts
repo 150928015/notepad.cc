@@ -2,6 +2,7 @@ import diff3merge from 'diff3'
 import { diffPatch, patch, stripPatch } from 'node-diff3'
 
 export type PatchCompressed = any[]
+
 export type Patch = any
 
 const merge = (

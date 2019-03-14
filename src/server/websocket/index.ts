@@ -1,4 +1,4 @@
-import WsServer from 'socket.io'
+import * as WsServer from 'socket.io'
 import { noteService } from '../service/note'
 
 export const wsServer = WsServer()

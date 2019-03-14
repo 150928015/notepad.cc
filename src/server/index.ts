@@ -20,7 +20,7 @@ const httpServer = new http.Server(app.callback())
 wsServer.listen(httpServer)
 
 function start() {
-  const port = config.port || 3000
+  const port = config.port
   httpServer.listen(port)
   console.info('Listening on', port)
 }

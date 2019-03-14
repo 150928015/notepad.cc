@@ -8,19 +8,13 @@ const getId = (): string => {
   return decodeURIComponent(location.pathname.slice(1))
 }
 
-const App = {
-  id: '',
-  networkStatus: '',
-  saveStatusClass: '',
-  saveStatusTimer: undefined as number | undefined,
+const App: m.FactoryComponent = () => {
+  let id = ''
+  let networkStatus = ''
+  let saveStatusClass = ''
+  let saveStatusTimer = undefined as number | undefined
 
-  oninit(): void {
-    this.id = getId()
-    document.title = `${this.id} · notepad`
-    this.startMonitorNetwork()
-  },
-
-  startMonitorNetwork() {
+  const startMonitorNetwork = () => {
     type NetworkEvent =
       | 'connect'
       | 'reconnect'
@@ -40,52 +34,60 @@ const App = {
     }
     Object.keys(events).forEach(evt =>
       socket.on(evt, () => {
-        this.networkStatus = events[evt as NetworkEvent] as string
+        networkStatus = events[evt as NetworkEvent] as string
         m.redraw()
       })
     )
-  },
+  }
 
-  onSaveStatusChange(isSaving: boolean): void {
-    clearTimeout(this.saveStatusTimer)
+  const onSaveStatusChange = (isSaving: boolean): void => {
+    clearTimeout(saveStatusTimer)
     if (isSaving) {
-      this.saveStatusClass = 'show'
+      saveStatusClass = 'show'
       m.redraw()
     } else {
-      this.saveStatusTimer = window.setTimeout(() => {
-        this.saveStatusClass = ''
+      saveStatusTimer = window.setTimeout(() => {
+        saveStatusClass = ''
         m.redraw()
       }, 300)
     }
-  },
+  }
 
-  view() {
-    const href = location.origin + '/' + this.id
-    return m(
-      'main',
-      m('header', [
-        m('small#save-status', { class: this.saveStatusClass }, 'saving'),
-        m('small#network-status', this.networkStatus),
-      ]),
-      m('section', [
-        m('.layer', [
+  return {
+    oninit(): void {
+      id = getId()
+      document.title = `${id} · notepad`
+      startMonitorNetwork()
+    },
+
+    view() {
+      const href = location.origin + '/' + id
+      return m(
+        'main',
+        m('header', [
+          m('small#save-status', { class: saveStatusClass }, 'saving'),
+          m('small#network-status', networkStatus),
+        ]),
+        m('section', [
           m('.layer', [
             m('.layer', [
-              m(Editor, {
-                socket: socket,
-                id: this.id,
-                onStatusChange: this.onSaveStatusChange.bind(this),
-              }),
+              m('.layer', [
+                m(Editor, {
+                  socket: socket,
+                  id: id,
+                  onStatusChange: onSaveStatusChange,
+                }),
+              ]),
             ]),
           ]),
         ]),
-      ]),
-      m(
-        'footer',
-        m('small', m('a.this-page', { href }, decodeURIComponent(href)))
+        m(
+          'footer',
+          m('small', m('a.this-page', { href }, decodeURIComponent(href)))
+        )
       )
-    )
-  },
+    },
+  }
 }
 
 m.mount(document.body, App)

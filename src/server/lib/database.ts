@@ -1,6 +1,7 @@
 import * as Datastore from 'nedb'
 import * as path from 'path'
 import { promisifyAll } from './promisify'
+import { config } from '../config'
 
 export interface Id {
   _id: string
@@ -26,7 +27,7 @@ export function Database<T>(name: string): Database<T> {
     cache[name] ||
     promisifyAll(
       new Datastore({
-        filename: path.resolve(__dirname, '../../data/', name),
+        filename: path.resolve(config.dataDir, name),
         timestampData: true,
         autoload: true,
       })

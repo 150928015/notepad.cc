@@ -46,9 +46,9 @@
     "prebuild": "rm -rf public server",
     "build": "npm run server:build && npm run client:build",
     "server:build": "tsc --project ./src/server/tsconfig.json",
-    "server:watch": "ts-node-dev --transpileOnly --no-notify ./src/server/index.ts",
+    "server:watch": "export NODE_ENV=development && ts-node-dev --transpileOnly --no-notify ./src/server/index.ts",
     "client:build": "parcel build src/client/index.html --out-dir public --public-url '/dist' --target browser ",
-    "client:watch": "parcel watch src/client/index.html --out-dir public --public-url '/dist' --target browser",
+    "client:watch": "export NODE_ENV=development && parcel watch src/client/index.html --out-dir public --public-url '/dist' --target browser",
     "predeploy": "npm run build",
     "deploy": "./scripts/deploy.sh",
     "rollback": "./scripts/rollback.sh"

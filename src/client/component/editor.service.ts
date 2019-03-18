@@ -8,28 +8,6 @@ export const verify = (str: string, hash: number): boolean => {
   return str != null && hashString(str) === hash
 }
 
-export function compositingStream(
-  elem: HTMLElement,
-  addToUnsubscribers: (unsub: () => void) => void
-): Stream<boolean> {
-  const compositionStart$ = Stream.fromEvent(
-    elem,
-    'compositionstart',
-    addToUnsubscribers
-  )
-  const compositionEnd$ = Stream.fromEvent(
-    elem,
-    'compositionend',
-    addToUnsubscribers
-  )
-  const compositing$ = Stream.merge([
-    compositionStart$.map(() => true),
-    compositionEnd$.map(() => false),
-  ])
-    .startsWith(false)
-    .unique()
-  return compositing$
-}
 // export function remoteNoteStream(editor: HTMLTextAreaElement): Stream<string> {
 //   const remoteNote$ = Stream(editor.value)
 //   socket.on(
@@ -56,8 +34,10 @@ export function compositingStream(
 //     }
 //   })
 // }
-export function mergeToEditor(): void {
-  const newRemoteNote = remoteNote$()
+export function mergeToEditor(
+  editor: HTMLTextAreaElement,
+  newRemoteNote: string
+): void {
   if (newRemoteNote === editor.value) {
     commonParent$(newRemoteNote)
   } else if (commonParent$() === editor.value) {
@@ -129,17 +109,5 @@ export function saveToRemote(note: string) {
         }
       }
     })
-  }
-}
-function beforeunloadPrompt(e: BeforeUnloadEvent) {
-  var confirmationMessage = 'Your change has not been saved, quit?'
-  e.returnValue = confirmationMessage // Gecko, Trident, Chrome 34+
-  return confirmationMessage // Gecko, WebKit, Chrome <34
-}
-export function setBeforeUnloadPrompt(isDirty: boolean) {
-  if (isDirty) {
-    window.addEventListener('beforeunload', beforeunloadPrompt)
-  } else {
-    window.removeEventListener('beforeunload', beforeunloadPrompt)
   }
 }

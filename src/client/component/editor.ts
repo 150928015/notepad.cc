@@ -5,10 +5,7 @@ import { Stream } from '../util/stream'
 import { assist } from './assist'
 import { NetworkEvent, networkEventMap } from '../lib/network'
 import {
-  remoteNoteStream,
-  compositingStream,
   mergeToEditor,
-  fetchNote,
   saveToRemote,
   setBeforeUnloadPrompt,
   verify,
@@ -20,8 +17,140 @@ export interface NoteError {
 
 type SocketEvent = {
   note_update: { h: number; p: PatchCompressed }
-  subscribe: { id: string }
 }
+type SocketRemoteMethods = {
+  subscribe: { params: { id: string }; result: undefined }
+  get: {
+    params: { id: string }
+    result: { note?: string }
+  }
+}
+
+const flip = (val: boolean) => !val
+
+const compositingStream = (
+  elem: HTMLElement,
+  addToUnsubscribers: (unsub: Unsubscriber) => void
+): Stream<boolean> => {
+  const compositionStart$ = Stream.fromEvent(
+    elem,
+    'compositionstart',
+    addToUnsubscribers
+  )
+  const compositionEnd$ = Stream.fromEvent(
+    elem,
+    'compositionend',
+    addToUnsubscribers
+  )
+  const compositing$ = Stream.merge([
+    compositionStart$.map(() => true),
+    compositionEnd$.map(() => false),
+  ])
+    .startsWith(false)
+    .unique()
+  return compositing$
+}
+
+const createEditorService = ({
+  editor,
+  $triggerInputed,
+  addToUnsubscribers,
+}: {
+  editor: HTMLTextAreaElement
+  $triggerInputed: Stream<null>
+  addToUnsubscribers: (unsub: Unsubscriber) => void
+}) => {
+  const $compositing = compositingStream(editor, addToUnsubscribers).log(
+    'compositing'
+  )
+
+  const $notCompositing = $compositing.map(flip).log('notCompositing')
+
+  const $input = Stream.merge([
+    $triggerInputed,
+    Stream.fromEvent(editor, 'input', addToUnsubscribers),
+  ])
+    .map(() => null)
+    .log('input')
+
+  const $keydown = Stream.fromEvent<KeyboardEvent>(
+    editor,
+    'keydown',
+    addToUnsubscribers
+  ).log('keydown')
+
+  const $value = Stream(editor.value)
+
+  return {
+    $compositing,
+    $notCompositing,
+    $input,
+    $keydown,
+    $value,
+  }
+}
+
+const createRemoteService = ({
+  socket,
+  id,
+  $triggerFetch,
+  addToUnsubscribers,
+}: {
+  socket: SocketIOClient.Socket
+  id: string
+  $triggerFetch: Stream<null>
+  addToUnsubscribers: (unsub: Unsubscriber) => void
+}) => {
+  const fromSocketEvent = <T extends keyof SocketEvent>(
+    event: T
+  ): Stream<SocketEvent[T]> => {
+    return Stream.fromEvent(socket, event, addToUnsubscribers)
+  }
+
+  const callSocket = <T extends keyof SocketRemoteMethods>(
+    event: T,
+    params: SocketRemoteMethods[T]['params']
+  ): Promise<SocketRemoteMethods[T]['result']> =>
+    new Promise((resolve, reject) => {
+      socket.emit(event, params, resolve)
+    })
+
+  const fetchNote = () => callSocket('get', { id })
+
+  const $receivedNoteUpdate = fromSocketEvent('note_update')
+  const $receivedPatch = $receivedNoteUpdate.map(({ h: hash, p: patch }) => {
+    const note = applyPatch($remoteNote(), patch)
+    const valid = verify(note, hash)
+    return { hash, patch, note, valid }
+  })
+  const $noteFetched = $triggerFetch
+    .map(() => Stream.fromPromise(fetchNote()))
+    .flatten()
+    .filter(({ note }) => {
+      return note != null
+    })
+    .map(val => val.note!)
+
+  const $remoteNoteStale = Stream.merge([
+    Stream<boolean>(true), // start
+    $receivedPatch.filter(patch => !patch.valid).map(() => true),
+    $noteFetched.map(() => false),
+  ]).unique()
+
+  const $remoteNote = Stream.merge([
+    $receivedPatch.filter(patch => patch.valid).map(val => val.note),
+    $noteFetched,
+  ])
+
+  return {
+    $receivedNoteUpdate,
+    $noteFetched,
+    $remoteNoteStale,
+    $remoteNote,
+  }
+}
+
+type Unsubscriber = () => void
 
 export interface EditorProps {
   id: string
@@ -32,22 +161,11 @@ export interface EditorProps {
 export const Editor: FactoryComponent<EditorProps> = props => {
   const socket = createSocketClient()
 
-  const unsubscribers: (() => void)[] = []
-  const addToUnsubscribers = (unsub: () => void) => {
-    unsubscribers.push(unsub)
+  const unsubscribers: Unsubscriber[] = []
+  const addToUnsubscribers = (unsubscriber: Unsubscriber) => {
+    unsubscribers.push(unsubscriber)
   }
 
-  const createSocketStream = <T extends keyof SocketEvent>(
-    event: T
-  ): Stream<SocketEvent[T]> => {
-    return Stream.fromEvent(socket, event, addToUnsubscribers)
-  }
-  const callSocket = <T>(event: string, payload: any) =>
-    new Promise<T>((resolve, reject) => {
-      socket.emit(event, payload, result => {
-        resolve(result)
-      })
-    })
   // monitor network
   Object.keys(networkEventMap).forEach(event => {
     const listener = () => props.attrs.onNetworkChange(event as NetworkEvent)
@@ -62,120 +180,68 @@ export const Editor: FactoryComponent<EditorProps> = props => {
     }): void {
       const editor = dom as HTMLTextAreaElement
 
-      const fetchNote = () => callSocket<{ note?: string }>('get', { id })
-
-      //-------------- sources --------------
-      const $receivedNoteUpdate = createSocketStream('note_update')
       const $triggerFetch = Stream<null>()
-      const $compositing = compositingStream(editor, addToUnsubscribers)
-      const $notCompositing = $compositing.map(c => !c)
+      const $triggerInputed = Stream<null>()
 
-      //-------------- transformers  --------------
-
-      const $input = Stream.fromEvent(editor, 'input', addToUnsubscribers)
-        .map(() => null)
-        .log('input')
-
-      const $keydown = Stream.fromEvent<KeyboardEvent>(
+      const { $input, $notCompositing, $keydown } = createEditorService({
         editor,
-        'keydown',
-        addToUnsubscribers
-      ).log('keydown')
+        $triggerInputed,
+        addToUnsubscribers,
+      })
+
+      const { $remoteNote, $remoteNoteStale } = createRemoteService({
+        socket,
+        id,
+        $triggerFetch,
+        addToUnsubscribers,
+      })
 
       const $triggerSave = $input
         .debounce(500)
         .map(() => null)
-        .log('shouldSave')
+        .until($notCompositing)
+        .log('triggerSave')
 
-      //-------------- sinks  --------------
-      const $emitSubscribe = createSocketStream('subscribe')
-      const $receivedNewNote = $receivedNoteUpdate.map(
-        ({ h: hash, p: patch }) => {
-          const note = applyPatch($remoteNote(), patch)
-          return { hash, patch, note }
-        }
-      )
-      const $receivedNewNoteVerified = $receivedNewNote.filter(r =>
-        verify(r.note, r.hash)
-      )
+      const $isSaving = Stream<boolean>(false).log('isSaving')
+      const $justSaved = $isSaving.unique().filter(isSaving => !isSaving)
 
-      const $receivedNewNoteInvalid = $receivedNewNote.filter(
-        r => !verify(r.note, r.hash)
-      )
-
-      const $noteFetched = $triggerFetch
-        .map(() => Stream.fromPromise(fetchNote()))
-        .flatten()
-        .filter(({ note }) => {
-          return note != null
-        })
-        .map(val => val.note!)
-
-      const $remoteNoteStale = Stream.merge([
-        // Stream<boolean>(false),
-        $receivedNewNoteInvalid.map(() => true),
-        $noteFetched.map(() => false),
+      const isEditorDirty$ = Stream.merge([
+        $input.map(() => true),
+        $justSaved.map(() => false),
       ])
+        .startsWith(false)
+        .unique()
+        .log('isEditorDirty')
 
-      const $remoteNote = Stream.merge([
-        Stream(editor.value),
-        $receivedNewNoteVerified.map(val => val.note),
-        $noteFetched,
-      ])
+      //-------------- stream:remote --------------
 
       const $commonParent = Stream(editor.value).log('commonParent') // the 'o' in threeWayMerge(a,o,b)
 
       //-------------- effects --------------
-      $emitSubscribe({ id })
-      $triggerFetch()
+      // $triggerFetch()
 
-      // const remoteNote$ = remoteNoteStream().log('removeNote')
+      $keydown
+        .filter(() => $notCompositing())
+        .subscribe(event => assist(editor, event, () => $triggerInputed(null)))
 
-      // const isRemoteNoteStale$ = remoteNote$
-      //   .map(() => false as boolean)
-      //   .log('isRemoteNoteStale')
+      $remoteNote
+        .until($notCompositing)
+        .subscribe(remoteNote => mergeToEditor(editor, remoteNote))
 
-      // const isNotCompositing$ = compositingStream(editor)
-      //   .unique()
-      //   .map(comp => !comp)
-      //   .log('isNotCompositing')
+      $remoteNoteStale.filter(Boolean).subscribe(() => $triggerFetch())
 
-      const shouldSave$ = input$
-        .debounce(500)
-        .map(() => null)
-        .log('shouldSave')
+      $triggerSave.subscribe(() => saveToRemote(editor.value), false)
 
-      const isSaving$ = Stream<boolean>(false).log('isSaving')
+      $isSaving.unique().subscribe(onSaveStatusChange)
 
-      const isEditorDirty$ = Stream.merge([
-        input$.map(() => true),
-        isSaving$.filter(s => !s).map(() => false),
-      ])
-        .startsWith(false)
-        .log('isEditorDirty')
-
-      //------ listeners --------
-      keydown$
-        .filter(() => isNotCompositing$())
-        .subscribe(key => assist(editor, key, () => input$(null)))
-
-      remoteNote$.until(isNotCompositing$).subscribe(mergeToEditor, false)
-
-      isRemoteNoteStale$
-        .unique()
-        .filter(Boolean)
-        .subscribe(fetchNote)
-
-      $triggerSave
-        .until(isNotCompositing$)
-        .subscribe(() => saveToRemote(editor.value), false)
-
-      isSaving$.unique().subscribe(onSaveStatusChange)
-
-      isEditorDirty$.subscribe(setBeforeUnloadPrompt)
-
-      //------- trigger fist fetch ---------
-      isRemoteNoteStale$(true)
+      const promptUnsaved = (e: BeforeUnloadEvent) => {
+        if (isEditorDirty$()) {
+          const message = 'Your change has not been saved, quit?'
+          e.returnValue = message // Gecko, Trident, Chrome 34+
+          return message // Gecko, WebKit, Chrome <34
+        }
+      }
+      window.addEventListener('beforeunload', promptUnsaved) // TODO
     },
     onbeforeupdate() {
       // update textarea manually

@@ -795,13 +795,25 @@
   dependencies:
     "@types/koa" "*"
 
-"@types/koa@*", "@types/koa@2.0.46":
+"@types/koa@*":
   version "2.0.46"
   resolved "http://registry.npm.taobao.org/@types/koa/download/@types/koa-2.0.46.tgz#24bc3cd405d10fcde81f876cd8285b44d4ddc3e9"
   dependencies:
     "@types/accepts" "*"
     "@types/cookies" "*"
     "@types/events" "*"
+    "@types/http-assert" "*"
+    "@types/keygrip" "*"
+    "@types/koa-compose" "*"
+    "@types/node" "*"
+
+"@types/koa@2.0.48":
+  version "2.0.48"
+  resolved "http://registry.npm.taobao.org/@types/koa/download/@types/koa-2.0.48.tgz#29162783029d3e5df8b58c55f6bf0d35f78fc39f"
+  integrity sha1-KRYngwKdPl34tYxV9r8NNfePw58=
+  dependencies:
+    "@types/accepts" "*"
+    "@types/cookies" "*"
     "@types/http-assert" "*"
     "@types/keygrip" "*"
     "@types/koa-compose" "*"
@@ -4648,10 +4660,10 @@ pako@~1.0.5:
   version "1.0.6"
   resolved "http://registry.npm.taobao.org/pako/download/pako-1.0.6.tgz#0101211baa70c4bca4a0f63f2206e97b7dfaf258"
 
-parcel-bundler@^1.12.1:
-  version "1.12.1"
-  resolved "http://registry.npm.taobao.org/parcel-bundler/download/parcel-bundler-1.12.1.tgz#a9eab83057e4fc52fb6b49ef569d9d7824cdf636"
-  integrity sha1-qeq4MFfk/FL7a0nvVp2deCTN9jY=
+parcel-bundler@^1.12.2:
+  version "1.12.2"
+  resolved "http://registry.npm.taobao.org/parcel-bundler/download/parcel-bundler-1.12.2.tgz#5736afcbeee80a488bb946fd53ba52d1c5786960"
+  integrity sha1-Vzavy+7oCkiLuUb9U7pS0cV4aWA=
   dependencies:
     "@babel/code-frame" "^7.0.0"
     "@babel/core" "^7.0.0"

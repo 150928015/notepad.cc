@@ -1,8 +1,7 @@
 import m from 'mithril'
-import SocketClient from 'socket.io-client'
 import { Editor } from './component/editor'
-import './style/main.css'
-const socket = SocketClient()
+import { NetworkEvent, networkEventMap } from './lib/network'
+import { Stream } from './util/stream'
 
 const getId = (): string => {
   return decodeURIComponent(location.pathname.slice(1))
@@ -12,52 +11,33 @@ const App: m.FactoryComponent = () => {
   let id = ''
   let networkStatus = ''
   let saveStatusClass = ''
-  let saveStatusTimer = undefined as number | undefined
 
-  const startMonitorNetwork = () => {
-    type NetworkEvent =
-      | 'connect'
-      | 'reconnect'
-      | 'reconnect_attempt'
-      | 'connect_error'
-      | 'connect_timeout'
-      | 'reconnect_error'
-      | 'reconnect_failed'
-    const events: { [key in NetworkEvent]: string } = {
-      connect: '',
-      reconnect: '',
-      reconnect_attempt: 'connection lost',
-      connect_error: 'connection lost',
-      connect_timeout: 'connection lost',
-      reconnect_error: 'connection lost',
-      reconnect_failed: 'connection lost',
-    }
-    Object.keys(events).forEach(evt =>
-      socket.on(evt, () => {
-        networkStatus = events[evt as NetworkEvent] as string
-        m.redraw()
-      })
-    )
-  }
+  const isSaving$ = Stream<boolean>(false)
+    .unique()
+    .log('isSaving')
 
-  const onSaveStatusChange = (isSaving: boolean): void => {
-    clearTimeout(saveStatusTimer)
-    if (isSaving) {
-      saveStatusClass = 'show'
+  isSaving$.filter(Boolean).subscribe(() => {
+    saveStatusClass = 'is-active'
+    m.redraw()
+  })
+  isSaving$
+    .filter(isSaving => !isSaving)
+    .debounce(300)
+    .subscribe(() => {
+      saveStatusClass = ''
       m.redraw()
-    } else {
-      saveStatusTimer = window.setTimeout(() => {
-        saveStatusClass = ''
-        m.redraw()
-      }, 300)
-    }
-  }
+    })
+
+  const $network = Stream<NetworkEvent>().log('network')
+  $network.subscribe(status => {
+    networkStatus = networkEventMap[status]
+    m.redraw()
+  })
 
   return {
     oninit(): void {
       id = getId()
       document.title = `${id} · notepad`
-      startMonitorNetwork()
     },
 
     view() {
@@ -73,9 +53,9 @@ const App: m.FactoryComponent = () => {
             m('.layer', [
               m('.layer', [
                 m(Editor, {
-                  socket: socket,
                   id: id,
-                  onStatusChange: onSaveStatusChange,
+                  onSaveStatusChange: isSaving$,
+                  onNetworkChange: $network,
                 }),
               ]),
             ]),

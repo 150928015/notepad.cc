@@ -1,9 +1,11 @@
+import createSocketClient from 'socket.io-client'
 import m, { Component, FactoryComponent } from 'mithril'
 import hashString from 'string-hash'
 import { applyPatch, createPatch, merge3, PatchCompressed } from '../lib/diff3'
 import { Stream } from '../util/stream'
 import { assist } from './assist'
 import { START, END } from './assistor.types'
+import { NetworkEvent, networkEventMap } from '../lib/network'
 
 interface NoteError {
   errcode: string
@@ -11,8 +13,8 @@ interface NoteError {
 
 export interface EditorProps {
   id: string
-  socket: SocketIOClient.Socket
-  onStatusChange: (...arg: any[]) => void
+  onSaveStatusChange: (isSaving: boolean) => void
+  onNetworkChange: (status: NetworkEvent) => void
 }
 
 const verify = (str: string, hash: number): boolean => {
@@ -20,8 +22,21 @@ const verify = (str: string, hash: number): boolean => {
 }
 
 export const Editor: FactoryComponent<EditorProps> = () => {
+  let socket: SocketIOClient.Socket
+
   return {
-    oncreate({ dom, attrs: { id, socket, onStatusChange } }): void {
+    oncreate({
+      dom,
+      attrs: { id, onSaveStatusChange, onNetworkChange },
+    }): void {
+      socket = createSocketClient()
+      // monitor network
+      Object.keys(networkEventMap).forEach(evt =>
+        socket.on(evt, () => {
+          onNetworkChange(evt as NetworkEvent)
+        })
+      )
+
       const $editor = dom as HTMLTextAreaElement
 
       //------ events --------
@@ -77,7 +92,7 @@ export const Editor: FactoryComponent<EditorProps> = () => {
         .until(isNotCompositing$)
         .subscribe(() => saveToRemote($editor.value), false)
 
-      isSaving$.unique().subscribe(onStatusChange)
+      isSaving$.unique().subscribe(onSaveStatusChange)
 
       isEditorDirty$.subscribe(setBeforeUnloadPrompt)
 
@@ -242,6 +257,10 @@ export const Editor: FactoryComponent<EditorProps> = () => {
     onbeforeupdate() {
       // update textarea manually
       return false
+    },
+    onremove() {
+      socket.close()
+      socket.removeAllListeners()
     },
     view() {
       return m(

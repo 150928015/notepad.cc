@@ -73,7 +73,7 @@ header {
   transition: opacity 0.5s;
 }
 
-#save-status.show {
+#save-status.is-active {
   opacity: 1;
 }
 

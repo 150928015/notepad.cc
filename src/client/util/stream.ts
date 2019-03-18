@@ -125,7 +125,7 @@ class StreamClass<T extends VV> {
   >(
     streams: [Stream<A>, Stream<B>, Stream<C>, Stream<D>, Stream<E>]
   ): Stream<A | B | C | D | E>
-  static merge(streams: Stream<any>[]): Stream<any> {
+  static merge(streams: (Stream<any>)[]): Stream<any> {
     const merged$ = Stream(
       undefined,
       `merge(${streams.map(s => s.displayName).join(',')})`
@@ -166,16 +166,21 @@ class StreamClass<T extends VV> {
   }
 
   static fromEvent<T extends VV>(
-    elem: {
-      addEventListener(
-        type: string,
-        listener: (payload: T | undefined) => void
-      ): void
-      removeEventListener(
-        type: string,
-        listener: (payload: T | undefined) => void
-      ): void
-    },
+    source:
+      | {
+          addEventListener(
+            type: string,
+            listener: (payload: T | undefined) => void
+          ): void
+          removeEventListener(
+            type: string,
+            listener: (payload: T | undefined) => void
+          ): void
+        }
+      | {
+          on(type: string, listener: (payload: T | undefined) => void): void
+          off(type: string, listener: (payload: T | undefined) => void): void
+        },
     type: string,
     callback?: (unsubscribe: () => void) => void
   ): Stream<T> {
@@ -184,13 +189,27 @@ class StreamClass<T extends VV> {
     const listener = (payload: T | undefined) => {
       event$(payload == null ? (null as T) : payload)
     }
-    elem.addEventListener(type, listener)
+    if ('on' in source && 'off' in source) {
+      source.on(type, listener)
+    } else {
+      source.addEventListener(type, listener)
+    }
 
     if (callback) {
-      callback(() => elem.removeEventListener(type, listener))
+      if ('on' in source && 'off' in source) {
+        callback(() => source.off(type, listener))
+      } else {
+        callback(() => source.removeEventListener(type, listener))
+      }
     }
 
     return event$
+  }
+
+  static fromPromise<T extends VV>(promise: Promise<T>): Stream<T> {
+    const promise$ = Stream<T>()
+    promise.then(val => promise$(val))
+    return promise$
   }
 
   startsWith<S extends VV>(value: S): Stream<S | T> {

@@ -3,40 +3,33 @@ import { Editor } from './component/editor'
 import { NetworkEvent, networkEventMap } from './lib/network'
 import { Stream } from './util/stream'
 
-const getId = (): string => {
-  return decodeURIComponent(location.pathname.slice(1))
-}
-
 const App: m.FactoryComponent = () => {
-  let id = ''
-  let networkStatus = ''
-  let saveStatusClass = ''
+  const id = decodeURIComponent(location.pathname.slice(1))
 
-  const isSaving$ = Stream<boolean>(false)
+  const $setIsSaving = Stream<boolean>(false)
     .unique()
     .log('isSaving')
 
-  isSaving$.filter(Boolean).subscribe(() => {
-    saveStatusClass = 'is-active'
-    m.redraw()
-  })
-  isSaving$
-    .filter(isSaving => !isSaving)
-    .debounce(300)
-    .subscribe(() => {
-      saveStatusClass = ''
-      m.redraw()
-    })
+  const $setNetwork = Stream<NetworkEvent>().log('network')
 
-  const $network = Stream<NetworkEvent>().log('network')
-  $network.subscribe(status => {
-    networkStatus = networkEventMap[status]
-    m.redraw()
+  const $saveStatusClass = Stream.merge([
+    $setIsSaving.filter(Boolean).map(() => 'is-active'),
+    $setIsSaving
+      .filter(isSaving => !isSaving)
+      .debounce(300)
+      .map(() => ''),
+  ]).log('status')
+
+  const $networkStatus = $setNetwork.map(status => {
+    return networkEventMap[status]
   })
+
+  const $uiStates = Stream.merge([$saveStatusClass, $networkStatus]).log('ui')
+
+  $uiStates.subscribe(() => m.redraw())
 
   return {
     oninit(): void {
-      id = getId()
       document.title = `${id} · notepad`
     },
 
@@ -45,8 +38,8 @@ const App: m.FactoryComponent = () => {
       return m(
         'main',
         m('header', [
-          m('small#save-status', { class: saveStatusClass }, 'saving'),
-          m('small#network-status', networkStatus),
+          m('small#save-status', { class: $saveStatusClass() }, 'saving'),
+          m('small#network-status', $networkStatus()),
         ]),
         m('section', [
           m('.layer', [
@@ -54,8 +47,8 @@ const App: m.FactoryComponent = () => {
               m('.layer', [
                 m(Editor, {
                   id: id,
-                  onSaveStatusChange: isSaving$,
-                  onNetworkChange: $network,
+                  onSaveStatusChange: $setIsSaving,
+                  onNetworkChange: $setNetwork,
                 }),
               ]),
             ]),

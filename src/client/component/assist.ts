@@ -46,8 +46,6 @@ export function assist(
   // @ts-ignore
   if (e.isComposing) return
 
-  const keyEvent = e
-
   const value = $textarea.value
   const selectionStart = $textarea.selectionStart
   const selectionEnd = $textarea.selectionEnd
@@ -67,15 +65,15 @@ export function assist(
     e.preventDefault()
     e.stopPropagation()
     e.stopImmediatePropagation && e.stopImmediatePropagation()
-    if (typeof transformed === 'string') {
-      const [before, _start, between, _end, after] = transformed.split(
-        new RegExp(`(${START}|${END})`, 'mg')
-      )
-      $textarea.value = [before, between, after].join('')
-      $textarea.setSelectionRange(before.length, before.length + between.length)
-      $textarea.blur()
-      $textarea.focus()
-    }
+
+    const [before, _start, between, _end, after] = transformed.split(
+      new RegExp(`(${START}|${END})`, 'mg')
+    )
+    $textarea.value = [before, between, after].join('')
+    $textarea.setSelectionRange(before.length, before.length + between.length)
+    $textarea.blur()
+    $textarea.focus()
+
     onAssisted()
   }
 }

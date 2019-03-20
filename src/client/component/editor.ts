@@ -4,12 +4,7 @@ import { PatchCompressed, applyPatch } from '../lib/diff3'
 import { Stream } from '../util/stream'
 import { assist } from './assist'
 import { NetworkEvent, networkEventMap } from '../lib/network'
-import {
-  mergeToEditor,
-  saveToRemote,
-  setBeforeUnloadPrompt,
-  verify,
-} from './editor.service'
+import { verify } from './editor.service'
 
 export interface NoteError {
   errcode: string
@@ -26,130 +21,6 @@ type SocketRemoteMethods = {
   }
 }
 
-const flip = (val: boolean) => !val
-
-const compositingStream = (
-  elem: HTMLElement,
-  addToUnsubscribers: (unsub: Unsubscriber) => void
-): Stream<boolean> => {
-  const compositionStart$ = Stream.fromEvent(
-    elem,
-    'compositionstart',
-    addToUnsubscribers
-  )
-  const compositionEnd$ = Stream.fromEvent(
-    elem,
-    'compositionend',
-    addToUnsubscribers
-  )
-  const compositing$ = Stream.merge([
-    compositionStart$.map(() => true),
-    compositionEnd$.map(() => false),
-  ])
-    .startsWith(false)
-    .unique()
-  return compositing$
-}
-
-const createEditorService = ({
-  editor,
-  $triggerInputed,
-  addToUnsubscribers,
-}: {
-  editor: HTMLTextAreaElement
-  $triggerInputed: Stream<null>
-  addToUnsubscribers: (unsub: Unsubscriber) => void
-}) => {
-  const $compositing = compositingStream(editor, addToUnsubscribers).log(
-    'compositing'
-  )
-
-  const $notCompositing = $compositing.map(flip).log('notCompositing')
-
-  const $input = Stream.merge([
-    $triggerInputed,
-    Stream.fromEvent(editor, 'input', addToUnsubscribers),
-  ])
-    .map(() => null)
-    .log('input')
-
-  const $keydown = Stream.fromEvent<KeyboardEvent>(
-    editor,
-    'keydown',
-    addToUnsubscribers
-  ).log('keydown')
-
-  const $value = Stream(editor.value)
-
-  return {
-    $compositing,
-    $notCompositing,
-    $input,
-    $keydown,
-    $value,
-  }
-}
-
-const createRemoteService = ({
-  socket,
-  id,
-  $triggerFetch,
-  addToUnsubscribers,
-}: {
-  socket: SocketIOClient.Socket
-  id: string
-  $triggerFetch: Stream<null>
-  addToUnsubscribers: (unsub: Unsubscriber) => void
-}) => {
-  const fromSocketEvent = <T extends keyof SocketEvent>(
-    event: T
-  ): Stream<SocketEvent[T]> => {
-    return Stream.fromEvent(socket, event, addToUnsubscribers)
-  }
-
-  const callSocket = <T extends keyof SocketRemoteMethods>(
-    event: T,
-    params: SocketRemoteMethods[T]['params']
-  ): Promise<SocketRemoteMethods[T]['result']> =>
-    new Promise((resolve, reject) => {
-      socket.emit(event, params, resolve)
-    })
-
-  const fetchNote = () => callSocket('get', { id })
-
-  const $receivedNoteUpdate = fromSocketEvent('note_update')
-  const $receivedPatch = $receivedNoteUpdate.map(({ h: hash, p: patch }) => {
-    const note = applyPatch($remoteNote(), patch)
-    const valid = verify(note, hash)
-    return { hash, patch, note, valid }
-  })
-  const $noteFetched = $triggerFetch
-    .map(() => Stream.fromPromise(fetchNote()))
-    .flatten()
-    .filter(({ note }) => {
-      return note != null
-    })
-    .map(val => val.note!)
-
-  const $remoteNoteStale = Stream.merge([
-    Stream<boolean>(true), // start
-    $receivedPatch.filter(patch => !patch.valid).map(() => true),
-    $noteFetched.map(() => false),
-  ]).unique()
-
-  const $remoteNote = Stream.merge([
-    $receivedPatch.filter(patch => patch.valid).map(val => val.note),
-    $noteFetched,
-  ])
-
-  return {
-    $receivedNoteUpdate,
-    $noteFetched,
-    $remoteNoteStale,
-    $remoteNote,
-  }
-}
-
 type Unsubscriber = () => void
 
 export interface EditorProps {
@@ -161,87 +32,73 @@ export interface EditorProps {
 export const Editor: FactoryComponent<EditorProps> = props => {
   const socket = createSocketClient()
 
-  const unsubscribers: Unsubscriber[] = []
-  const addToUnsubscribers = (unsubscriber: Unsubscriber) => {
-    unsubscribers.push(unsubscriber)
+  let editor: HTMLTextAreaElement
+
+  //-------------- state --------------
+  let status: 'idle' | 'localChanged' | 'remoteChanged' | 'bothChanged'
+  let remoteNote: string
+  let localNote: string
+  let commonNote: string
+
+  let isCompositing = false
+
+  //-------------- effects --------------
+
+  //-------------- handlers --------------
+  const onInput = () => {}
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    console.log(e)
+  }
+  const onCompositionStart = () => {
+    isCompositing = true
+  }
+  const onCompositionEnd = () => {
+    isCompositing = false
   }
 
-  // monitor network
-  Object.keys(networkEventMap).forEach(event => {
-    const listener = () => props.attrs.onNetworkChange(event as NetworkEvent)
-    socket.on(event, listener)
-    addToUnsubscribers(() => socket.off(event, listener))
-  })
+  const onBeforeUnload = (e: BeforeUnloadEvent) => {}
+
+  const onReceivedUpdate = ({
+    h: hash,
+    p: patch,
+  }: {
+    h: number
+    p: PatchCompressed
+  }) => {
+    const newNote = applyPatch(remoteNote, patch)
+    if (verify(newNote, hash)) {
+      remoteNote = newNote
+    } else {
+      isRemoteNoteStale$(true)
+    }
+  }
+
+  const onRemoteNoteStale = () => {}
 
   return {
     oncreate({
       dom,
       attrs: { id, onSaveStatusChange, onNetworkChange },
     }): void {
-      const editor = dom as HTMLTextAreaElement
+      editor = dom as HTMLTextAreaElement
+      remoteNote = editor.value
+      localNote = editor.value
+      commonNote = editor.value
+      status = 'idle'
+      socket.on('note_update', onReceivedUpdate)
+      socket.emit('subscribe', { id: id })
 
-      const $triggerFetch = Stream<null>()
-      const $triggerInputed = Stream<null>()
-
-      const { $input, $notCompositing, $keydown } = createEditorService({
-        editor,
-        $triggerInputed,
-        addToUnsubscribers,
+      // monitor network
+      const networkEvents = Object.keys(networkEventMap)
+      networkEvents.forEach(event => {
+        const listener = () =>
+          props.attrs.onNetworkChange(event as NetworkEvent)
+        socket.on(event, listener)
       })
 
-      const { $remoteNote, $remoteNoteStale } = createRemoteService({
-        socket,
-        id,
-        $triggerFetch,
-        addToUnsubscribers,
-      })
-
-      const $triggerSave = $input
-        .debounce(500)
-        .map(() => null)
-        .until($notCompositing)
-        .log('triggerSave')
-
-      const $isSaving = Stream<boolean>(false).log('isSaving')
-      const $justSaved = $isSaving.unique().filter(isSaving => !isSaving)
-
-      const isEditorDirty$ = Stream.merge([
-        $input.map(() => true),
-        $justSaved.map(() => false),
-      ])
-        .startsWith(false)
-        .unique()
-        .log('isEditorDirty')
-
-      //-------------- stream:remote --------------
-
-      const $commonParent = Stream(editor.value).log('commonParent') // the 'o' in threeWayMerge(a,o,b)
-
-      //-------------- effects --------------
-      // $triggerFetch()
-
-      $keydown
-        .filter(() => $notCompositing())
-        .subscribe(event => assist(editor, event, () => $triggerInputed(null)))
-
-      $remoteNote
-        .until($notCompositing)
-        .subscribe(remoteNote => mergeToEditor(editor, remoteNote))
-
-      $remoteNoteStale.filter(Boolean).subscribe(() => $triggerFetch())
-
-      $triggerSave.subscribe(() => saveToRemote(editor.value), false)
-
-      $isSaving.unique().subscribe(onSaveStatusChange)
-
-      const promptUnsaved = (e: BeforeUnloadEvent) => {
-        if (isEditorDirty$()) {
-          const message = 'Your change has not been saved, quit?'
-          e.returnValue = message // Gecko, Trident, Chrome 34+
-          return message // Gecko, WebKit, Chrome <34
-        }
-      }
-      window.addEventListener('beforeunload', promptUnsaved) // TODO
+      // before unload
+      window.addEventListener('beforeunload', onBeforeUnload)
     },
     onbeforeupdate() {
       // update textarea manually
@@ -250,11 +107,18 @@ export const Editor: FactoryComponent<EditorProps> = props => {
     onremove() {
       socket.close()
       socket.removeAllListeners()
+      window.removeEventListener('beforeunload', onBeforeUnload)
     },
     view() {
       return m(
         'textarea#editor',
-        { disabled: true, spellcheck: 'false' },
+        {
+          spellcheck: 'false',
+          oninput: onInput,
+          onkeydown: onKeyDown,
+          oncompositionstart: onCompositionStart,
+          oncompositionend: onCompositionEnd,
+        },
         '(Loading...)'
       )
     },

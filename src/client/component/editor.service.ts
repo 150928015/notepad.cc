@@ -3,6 +3,66 @@ import { applyPatch, createPatch, merge3, PatchCompressed } from '../lib/diff3'
 import { Stream } from '../util/stream'
 import { START, END } from './assistor.types'
 import { NoteError } from './editor'
+import { assertNever } from '../util/assert'
+import { produce } from '../util/immutable'
+
+export enum Status {
+  Idle = 'Idle',
+  LocalChanged = 'LocalChanged',
+  RemoteChanged = 'RemoteChanged',
+  BothChanged = 'BothChanged',
+}
+
+export type State = {
+  status: Status
+  /** known server version */
+  remote: string
+  /** server version where draft diverges from */
+  common: string
+  /** local edited version */
+  local: string
+}
+
+export namespace Actions {
+  export type InputAction = { type: 'input' }
+  export type Action = InputAction
+}
+
+export const getInitialState = (initValue: string): State => {
+  return {
+    status: Status.Idle,
+    remote: initValue,
+    common: initValue,
+    local: initValue,
+  }
+}
+
+export const reduce = (state: State, action: Actions.Action): State => {
+  return produce(state, state => {
+    switch (action.type) {
+      case 'input':
+        {
+          switch (state.status) {
+            case Status.Idle:
+            case Status.LocalChanged:
+              state.status = Status.LocalChanged
+              break
+            case Status.RemoteChanged:
+            case Status.BothChanged:
+              state.status = Status.BothChanged
+              break
+            default:
+              return assertNever(state.status)
+          }
+        }
+
+        break
+
+      default:
+        return assertNever(action.type)
+    }
+  })
+}
 
 export const verify = (str: string, hash: number): boolean => {
   return str != null && hashString(str) === hash

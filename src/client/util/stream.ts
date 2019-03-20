@@ -81,6 +81,7 @@ class StreamClass<T extends VV> {
   >(
     streams: [Stream<T1>, Stream<T2>, Stream<T3>, Stream<T4>, Stream<T5>]
   ): Stream<[T1, T2, T3, T4, T5]>
+  static combine(streams: Stream<any>[]): Stream<any>
   static combine(streams: Stream<any>[]): Stream<any> {
     const cached = streams.map(stream$ => stream$())
     const allHasValue = () => cached.every(elem => typeof elem !== 'undefined')
@@ -125,6 +126,7 @@ class StreamClass<T extends VV> {
   >(
     streams: [Stream<A>, Stream<B>, Stream<C>, Stream<D>, Stream<E>]
   ): Stream<A | B | C | D | E>
+  static merge(streams: (Stream<any>)[]): Stream<any>
   static merge(streams: (Stream<any>)[]): Stream<any> {
     const merged$ = Stream(
       undefined,
